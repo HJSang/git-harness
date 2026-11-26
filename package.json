@@ -1,0 +1,32 @@
+{
+  "name": "git-harness",
+  "version": "0.7.1",
+  "type": "module",
+  "license": "MIT",
+  "description": "A first-principles coding agent harness where Git is a first-class resident",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HJSang/git-harness.git"
+  },
+  "keywords": [
+    "ai-agent",
+    "agent-harness",
+    "coding-agent",
+    "git",
+    "kv-cache",
+    "subagents",
+    "mcp"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "git-harness": "./src/cli/main.ts"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "bench": "node test/bench.ts",
+    "eval": "node src/eval/ablation.ts",
+    "cli": "node src/cli/main.ts"
+  }
+}

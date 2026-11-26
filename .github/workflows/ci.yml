@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run P0 & E2E test suite
+        run: npm test
+
+      - name: Run P1 ablation rubric scorecard
+        run: npm run eval
+
+      - name: Run latency benchmark smoke check
+        env:
+          BENCH_FILES: "2000"
+          BENCH_TURNS: "10"
+        run: npm run bench

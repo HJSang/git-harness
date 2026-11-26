@@ -1,0 +1,41 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "openai": {
+      "baseUrl": "https://api.openai.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$OPENAI_API_KEY",
+      "models": [
+        {
+          "id": "gpt-4.1",
+          "name": "GPT-4.1",
+          "reasoning": false
+        }
+      ]
+    },
+    "anthropic": {
+      "baseUrl": "https://api.anthropic.com",
+      "api": "anthropic-messages",
+      "apiKey": "$ANTHROPIC_API_KEY",
+      "models": [
+        {
+          "id": "claude-sonnet-4-5",
+          "name": "Claude Sonnet 4.5",
+          "reasoning": true
+        }
+      ]
+    },
+    "deepseek": {
+      "baseUrl": "https://api.deepseek.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$DEEPSEEK_API_KEY",
+      "models": [
+        {
+          "id": "deepseek-chat",
+          "name": "DeepSeek Chat",
+          "reasoning": false
+        }
+      ]
+    }
+  }
+}
