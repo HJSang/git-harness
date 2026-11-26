@@ -58,6 +58,108 @@ Measured on a live Git repository with **10,000 tracked files + 500 ignored file
 
 ---
 
+## Visualized Session DAG Examples
+
+Every session, subagent, compaction, and rewind is stored as real Git commits under `refs/harness/*`. Because `SessionStore.project()` walks only `git rev-list --first-parent` back to the latest `compact` anchor, **side-branch exploration and archived history never pollute the active prompt or bust KV-cache**.
+
+### Example 1: Parallel Subagent Branches + Dual-Parent Squash Merges
+*Real Terminal-Bench v2.1 trace (`winning-avg-corewars` — solved in **8 steps** vs. `pi`'s 33; `0.03%` Git overhead).*
+
+On Step 2, the parent spawned **3 concurrent subagents** (`strategy-a`, `strategy-b`, `strategy-c`) in isolated worktrees. Together they explored **`1.18M` worker tokens**, then serialized squash-merges onto `main` with `parent2` provenance links—keeping the parent prompt under `13.5K` tokens:
+
+```mermaid
+flowchart LR
+  base["34f136b1<br/>checkpoint<br/>refs/harness/base"]
+  s1["2f029c58<br/>Step 1 · 1.4K tok"]
+
+  subgraph workers["Isolated Subagent Branches (excluded from parent --first-parent KV-cache)"]
+    wa["fca59711<br/>strategy-a · 623.4K tok"]
+    wb["cb453b26<br/>strategy-b · 32.8K tok"]
+    wc["24638448<br/>strategy-c · 525.5K tok"]
+  end
+
+  m1(("869c43da<br/>subagent-merge<br/>strategy-b"))
+  m2(("64a967aa<br/>subagent-merge<br/>strategy-a"))
+  m3(("42c612eb<br/>subagent-merge<br/>strategy-c"))
+  s2["246a9550<br/>Step 2 · 4.8K tok"]
+  s8["23a0d7c0<br/>Step 8 · 13.5K tok<br/>refs/harness/sessions/main"]
+
+  s1 ==> m1 ==> m2 ==> m3 ==> s2 ==> s8
+  s1 --> wb -. "parent2" .-> m1
+  s1 --> wa -. "parent2" .-> m2
+  s1 --> wc -. "parent2" .-> m3
+```
+
+*(Thick arrows `==>` = `--first-parent` hot prompt spine; dashed arrows `-.->` = `parent2` cold provenance preserved in Git & `recall`.)*
+
+### Example 2: Dual-Parent Auto-Compaction + Cold SQLite FTS5 Recall
+*Real Terminal-Bench v2.1 trace (`path-tracing-reverse` — **243 steps**, **`99.3%`** live KV-cache hit rate, `0.57%` Git overhead).*
+
+At Step 224 (`0e7f13ce`), prompt context reached `160.0K` tokens. Layer 1 committed a `compact` anchor (`c5a8756c`), dropping Step 225 (`a47a34b9`) to **`1.5K` tokens** without deleting a single prior commit. On Steps 239 and 241, the agent queried `recall` to pull exact details back from pre-compaction history in `2–4 ms`:
+
+```mermaid
+flowchart LR
+  subgraph cold["Cold History (skipped by prompt projection, 100% searchable via recall)"]
+    t1["f5b9ce0b<br/>Step 1 · 1.2K tok"]
+    tMid["··· 222 turns ···<br/>99.3% KV-cache hit"]
+    t224["0e7f13ce<br/>Step 224 · 160.0K tok"]
+    a1["72be31b1<br/>archive/agents/sub-1"]
+    a2["e61da777<br/>archive/agents/sub-2"]
+    a3["3a05dc54<br/>archive/agents/sub-3"]
+  end
+
+  cmp{"c5a8756c<br/>COMPACT ANCHOR<br/>160.0K → 1.5K"}
+
+  subgraph hot["Active --first-parent Window (post-compaction)"]
+    t225["a47a34b9<br/>Step 225 · 1.5K tok"]
+    t239["1bb9175c<br/>Step 239 · recall (4ms)"]
+    t243["5b0cbef8<br/>Step 243 · 13.7K tok<br/>refs/harness/sessions/main"]
+  end
+
+  t1 --> tMid --> t224 --> cmp ==> t225 ==> t239 ==> t243
+  t239 -. "FTS5 recall query" .-> tMid
+  t239 -. "FTS5 recall query" .-> a1
+```
+
+### Example 3: Orphan Research Subagent + Archive Observability (`v0.7`)
+*Real Terminal-Bench v2.1 trace (`feal-differential-cryptanalysis` — `1440s → 185.1s`, **`7.8×` faster** in `v0.7`; `39.8 KB` bundle).*
+
+When a parent delegates read-only research with `contextMode: "orphan"` and `dropOnComplete: true`, the worker starts from a clean root (`parents: []`), runs graceful synthesis if it hits `maxSteps`, archives at `refs/harness/archive/agents/<id>`, and remains immediately inspectable via `history show` and auto-refreshed `recall`:
+
+```mermaid
+flowchart LR
+  m1["9ef19da<br/>Step 1 · read feal.py"]
+  m3["4096cbb<br/>Step 3 · subagent call"]
+  m4["1890b03<br/>Step 4 · implement attack"]
+  m19["e01cda5<br/>Step 19 · PASS<br/>refs/harness/sessions/main"]
+
+  sub["6a775588<br/>orphan root · diff-analysis<br/>refs/harness/archive/agents/diff-analysis"]
+
+  m1 ==> m3 ==> m4 ==> m19
+  m3 -. "spawn orphan + dropOnComplete" .-> sub
+  sub -. "distilled summary + tip=6a775588<br/>(inspectable via history show / recall)" .-> m3
+```
+
+### Example 4: Co-Atomic Rewind + Session Forking
+When an agent hits a dead end, `history({ action: "rewind", targetSha })` (or `/rewind <sha>`) atomically restores **both** conversation state and workspace files to a clean checkpoint while preserving the abandoned branch under `refs/harness/abandoned/*`:
+
+```mermaid
+flowchart LR
+  c1["c1 · clean setup"]
+  c2["c2 · passing tests<br/>(rewind target)"]
+  c3["c3 · bad refactor"]
+  c4["c4 · failing tests<br/>refs/harness/abandoned/main-..."]
+  c5["c5 · clean fix"]
+  c6["c6 · all green<br/>refs/harness/sessions/main"]
+  f1["f1 · alt approach<br/>refs/harness/sessions/experiment"]
+
+  c1 ==> c2 ==> c5 ==> c6
+  c2 --> c3 --> c4
+  c2 -. "/fork experiment" .-> f1
+```
+
+---
+
 ## Usage
 
 Requires **Node.js >= 22.18** (Node 24 recommended) and `git`. Zero `npm install` step required.
