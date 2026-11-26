@@ -5,19 +5,39 @@
 
 ---
 
-## 1. Accuracy & Iterative Engineering Progression (All 89 Tasks)
+## 1. Clean Full 89-Task Head-to-Head Sweeps (`k = 1`)
 
-Starting from a full 178-trial head-to-head sweep (`pi v0.83.0` vs `git-harness v0.5`), every subsequent iteration (`v0.6 → v0.7 → v0.7.1`) was driven strictly by forensic analysis of real `session.bundle` Git DAGs and `profile.jsonl` telemetry:
+Each row below is a clean, independent full 89-task sweep under identical model and timeout settings (zero targeted-rerun selection bias):
 
-| Harness / Version | Tasks Passed (89 Tasks) | Key Engineering Changes |
+| Metric | `pi v0.83.0` | `git-harness v0.5` | `git-harness v0.7.1` (Full Sweep) |
+| :--- | :---: | :---: | :---: |
+| **Tasks Passed (Clean Full-Sweep Pass@1)** | `76 / 89` (`85.39%`) | `70 / 89` (`78.65%`) | **`72 / 89` (`80.90%`)** |
+| **McNemar Exact Two-Sided `p` vs `pi`** | — | `p = 0.238` (`6` vs `12`) | **`p = 0.455`** (`6` vs `10`) |
+| **Agent Duration (Median / Mean)** | `72.9s` / `231.2s` | `103.1s` / `356.7s` | `124.9s` / `366.5s` |
+| **Steps per Task (Median / Mean)** | `10.0` / `13.7` | `11.0` / `25.3` | `12.0` / `25.4` |
+| **Weighted Live KV-Cache Hit Rate** | `93.77%` | `97.35%` | **`97.40%` (`+3.63%`)** |
+| **Git Checkpoint Overhead (Median / Mean)** | — | `0.206%` / `1.162%` | **`0.176%` / `0.585%`** (`2×` lower mean) |
+| **Portable `session.bundle` Survival** | — | `84 / 89` (`73.4 KB` med) | **`89 / 89` (`100%`, `62.9 KB` med)** |
+| **Git-Native Tool Usage (89 Tasks)** | — | `34` sub · `99` blob · `6` rec · `2` hist | `30` sub · `98` blob · `4` rec · **`18` hist (`9×`)** |
+
+**Key Clean-Sweep Highlights (`v0.5 → v0.7.1`):**
+- **Gained `+7` tasks in full sweep:** `break-filter-js-from-html`, `chess-best-move` (`39.4s` vs `pi`'s `166s`), `crack-7z-hash` (`345.5s` where `pi` timed out at `1800s`), `gcode-to-text`, `gpt2-codegolf` (PASS!), `merge-diff-arc-agi-task` (`162.9s`), and `model-extraction-relu-logits`.
+- **Two-sweep union (`v0.5 ∪ v0.7.1`):** `77 / 89` (`86.52%`); **cumulative targeted-rerun union (`v0.5–v0.7.1`):** `81 / 89` (`91.01%`).
+- **100% forensic bundle survival:** All `89/89` trials in `v0.7.1` exported a valid `session.bundle` (including all 5 container-timeout runs), with median bundle size shrinking `73.4 KB → 62.9 KB` and max shrinking `968 MB → 318 MB`.
+
+---
+
+## 2. Iterative Forensic Progression (`v0.5 → v0.7.1`)
+
+During development, every release (`v0.6 → v0.7 → v0.7.1`) was driven strictly by unpacking `session.bundle` Git DAGs and `profile.jsonl` telemetry from failed runs:
+
+| Harness / Version | Targeted / Sweep Result | Key Engineering Changes |
 | :--- | :---: | :--- |
 | **`pi v0.83.0`** (`@earendil-works/pi-coding-agent@0.83.0`) | `76 / 89` (`85.39%`) | Full 89-task baseline sweep |
-| `git-harness v0.5` | `70 / 89` (`78.65%`) | Full 89-task baseline sweep (`97.35%` weighted KV-cache hit rate vs `93.77%` for `pi`; `0.206%` median Git overhead) |
-| `git-harness v0.6` *(targeted 15-task rerun)* | `77 / 89` (`86.52%`) | Nested unborn `.git` guard, multimodal image `read`, `120s` default `bash` timeout, VM-disk / `>25 MiB` detached excludes (`+7` recovered, `0` regressions) |
-| `git-harness v0.7` *(12-task failed rerun + `feal`)* | `80 / 89` (`89.89%`) | Graceful `maxSteps` no-tool synthesis handoff, total `refs/harness/{archive,abandoned}/*` `RecallIndex` with content-addressed `ensureFresh()`, `history show`, provenance-only subagent merge (`+3` recovered; `feal-differential-cryptanalysis` `7.8×` faster) |
-| **`git-harness v0.7.1`** *(4-task rerun)* | **`81 / 89` (`91.01%`)** | Fixed `StuckLoopHook` file-churn sliding-window saturation bug, added wall-clock `timeBudgetMs` notice, preserved `session.bundle` on `SIGTERM`/timeout (`+1` recovered: `dna-assembly`) |
-
-*(Note: `v0.6`, `v0.7`, and `v0.7.1` scores reflect targeted re-runs of failed/heavy tasks layered onto the full 89-task `v0.5` sweep rather than fresh full 89-task sweeps.)*
+| `git-harness v0.5` *(full 89-task sweep)* | `70 / 89` (`78.65%`) | Full 89-task baseline sweep (`97.35%` weighted KV-cache hit rate; `0.206%` median Git overhead) |
+| `git-harness v0.6` *(targeted 15-task rerun)* | `+7` recovered (`0` reg.) | Nested unborn `.git` guard, multimodal image `read`, `120s` default `bash` timeout, VM-disk / `>25 MiB` detached excludes |
+| `git-harness v0.7` *(12-task failed rerun + `feal`)* | `+3` recovered | Graceful `maxSteps` no-tool synthesis handoff, total `archive`/`abandoned` `RecallIndex` + `ensureFresh()`, `history show`, provenance-only subagent merge (`feal` `7.8×` faster) |
+| **`git-harness v0.7.1`** *(clean full 89-task sweep)* | **`72 / 89` (`80.90%`)** | Fixed `StuckLoopHook` file-churn saturation bug, added wall-clock `timeBudgetMs` notice, atomic `--bundle-out` preservation (`89/89` bundles, `97.40%` KV-cache, `0.176%` med Git overhead) |
 
 ---
 

@@ -18,24 +18,23 @@ Modern coding agent harnesses repeatedly reinvent partial versions of Git across
 
 ## Performance & Benchmarks
 
-### 1. Terminal-Bench v2.1 (89 Tasks — `git-harness` vs. `pi v0.83.0`)
+### 1. Terminal-Bench v2.1 (89 Tasks — Clean Full Sweeps: `git-harness` vs. `pi v0.83.0`)
 
-Evaluated on the full `terminal-bench/terminal-bench-2-1` suite (**89 tasks**) using an identical OpenAI-compatible reasoning model endpoint (`reasoning_effort = high`, `max_tokens = 32768`) and Harbor sandbox runner. Full breakdown in [BENCHMARK_TB21.md](./BENCHMARK_TB21.md).
+Evaluated on the full `terminal-bench/terminal-bench-2-1` suite (**89 tasks**, `k = 1`) using an identical OpenAI-compatible reasoning model endpoint (`reasoning_effort = high`, `max_tokens = 32768`) and Harbor sandbox runner. Full breakdown in [BENCHMARK_TB21.md](./BENCHMARK_TB21.md).
 
-| Harness / Version | Tasks Passed (89 Tasks) | Key Engineering Milestones |
-| :--- | :---: | :--- |
-| **`pi v0.83.0`** (`@earendil-works/pi-coding-agent@0.83.0`) | `76 / 89` (`85.39%`) | Full 89-task baseline sweep (`93.77%` weighted KV-cache hit) |
-| `git-harness v0.5` | `70 / 89` (`78.65%`) | Full 89-task baseline sweep (**`97.35%`** weighted KV-cache hit, **`-16.9%`** median input tokens, **`0.206%`** median Git overhead, `73.4 KB` median bundle) |
-| `git-harness v0.6` *(15-task targeted rerun)* | `77 / 89` (`86.52%`) | Nested unborn `.git` guard, multimodal image `read`, `120s` default `bash` timeout, VM-disk / `>25 MiB` detached excludes (`+7` recovered, `0` regressions) |
-| `git-harness v0.7` *(12-task failed rerun + `feal`)* | `80 / 89` (`89.89%`) | Graceful `maxSteps` no-tool synthesis handoff, total `archive`/`abandoned` `RecallIndex` + content-addressed `ensureFresh()`, `history show`, provenance-only subagent merge (`+3` recovered) |
-| **`git-harness v0.7.1`** *(4-task rerun)* | **`81 / 89` (`91.01%`)** | Fixed `StuckLoopHook` file-churn saturation dead-zone, added wall-clock `timeBudgetMs` notice, atomic `--bundle-out` preservation on timeout (`+1` recovered) |
+| Metric | `pi v0.83.0` | `git-harness v0.5` | `git-harness v0.7.1` (Clean Full Sweep) |
+| :--- | :---: | :---: | :---: |
+| **Tasks Passed (Full-Sweep Pass@1)** | `76 / 89` (`85.39%`) | `70 / 89` (`78.65%`) | **`72 / 89` (`80.90%`)** *(McNemar `p = 0.455`)* |
+| **Weighted Live KV-Cache Hit Rate** | `93.77%` | `97.35%` | **`97.40%` (`+3.63%` vs `pi`)** |
+| **Git Checkpoint Overhead (Med / Mean)** | — | `0.206%` / `1.162%` | **`0.176%` / `0.585%`** |
+| **Portable `session.bundle` Survival** | — | `84 / 89` (`73.4 KB` med) | **`89 / 89` (`100%`, `62.9 KB` med)** |
 
-*(Note: `v0.6`, `v0.7`, and `v0.7.1` scores reflect targeted re-runs of failed/heavy tasks layered onto the full 89-task `v0.5` sweep.)*
+*(Targeted failure re-runs during `v0.6 → v0.7.1` development reached a multi-run union of `81/89 = 91.01%`; the clean unconditioned `v0.7.1` full sweep above avoids selection bias and shows statistical parity with `pi v0.83.0` while delivering higher KV-cache hit rate and 100% portable Git forensic bundles.)*
 
 **Standout Real-World Telemetry Highlights:**
-- **KV-Cache Stability:** `97.35%` weighted live KV-cache hit rate across all 89 tasks (`+3.58%` over `pi v0.83.0`), peaking at `99.3%` on a 243-step run (`path-tracing-reverse`) where dual-parent auto-compaction dropped active context from **`160.0K → 1.5K` tokens** while cold `recall` retrieved archived facts in `2–4 ms`.
-- **Negligible Git Overhead:** `0.206%` median Git checkpoint overhead (`73.4 KB` median portable `session.bundle`). Excluding VM disk images shrank `qemu-alpine-ssh` from **`968 MB → 11.1 KB`** (`21.99% → 0.10%` Git overhead; passed in `102s` vs `pi` failing in `625s`).
-- **Lossless Subagent Handoff:** Fixing `maxSteps` synthesis + archive recall sped up `feal-differential-cryptanalysis` by **`7.8×`** (`1440s → 185.1s`, `54 → 19` steps, `4.5×` fewer input tokens).
+- **KV-Cache Stability:** `97.40%` weighted live KV-cache hit rate across all 89 tasks (`+3.63%` over `pi v0.83.0`), peaking at `99.3%` on a 243-step run (`path-tracing-reverse`) where dual-parent auto-compaction dropped active context from **`160.0K → 1.5K` tokens** while cold `recall` retrieved archived facts in `2–4 ms`.
+- **Negligible Git Overhead & 100% Bundle Survival:** `0.176%` median Git checkpoint overhead (`0.585%` mean, `62.9 KB` median bundle), with **`89/89` (`100%`)** of runs preserving valid `session.bundle` artifacts even on hard timeouts. Detached VM-disk excludes shrank `qemu-alpine-ssh` from **`968 MB → 12.0 KB`** (`21.99% → 0.05%` Git overhead; passed while `pi` failed).
+- **Forensic Fix Gains in Clean Full Sweep:** `chess-best-move` passed in **`39.4s`** (`4.2×` faster than `pi`'s `166s`), `crack-7z-hash` passed in **`345.5s`** (`pi` timed out at `1800s`), `feal-differential-cryptanalysis` passed in **`216.6s`** (`6.6×` faster than `v0.5`'s `1440s`), and `gpt2-codegolf` & `merge-diff-arc-agi-task` both flipped `FAIL → PASS`.
 
 ### 2. Controlled P1 Ablation Scorecard (`npm run eval`)
 
