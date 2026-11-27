@@ -232,6 +232,8 @@ export async function runCli(argv: string[]): Promise<void> {
   let enableSandbox = false;
   let sandboxAllowNetwork = true;
   let parallelToolCalls = true;
+  let enableSubagents = true;
+  let enableStuckHook = true;
   const mcpCommands: string[] = [];
   const positional: string[] = [];
 
@@ -267,6 +269,8 @@ export async function runCli(argv: string[]): Promise<void> {
       enableSandbox = true;
       sandboxAllowNetwork = false;
     } else if (arg === "--no-parallel-tools") parallelToolCalls = false;
+    else if (arg === "--no-subagents") enableSubagents = false;
+    else if (arg === "--no-stuck-hook") enableStuckHook = false;
     else if (arg === "--mcp" && argv[i + 1]) mcpCommands.push(argv[++i]!);
     else positional.push(arg);
   }
@@ -482,10 +486,14 @@ export async function runCli(argv: string[]): Promise<void> {
     const hooks: RuntimeHook[] = [
       createPinnedMemoryHook(memory),
       createSkillCatalogHook(skills),
-      createStuckLoopHook({
-        sessions,
-        timeBudgetMs: timeBudgetSec && timeBudgetSec > 0 ? timeBudgetSec * 1000 : undefined,
-      }),
+      ...(enableStuckHook
+        ? [
+            createStuckLoopHook({
+              sessions,
+              timeBudgetMs: timeBudgetSec && timeBudgetSec > 0 ? timeBudgetSec * 1000 : undefined,
+            }),
+          ]
+        : []),
     ];
 
     const exportBundleAtomic = () => {
@@ -539,19 +547,23 @@ export async function runCli(argv: string[]): Promise<void> {
             ...coreTools,
             createHistoryTool(sessions),
             createRecallTool(recallIndex, memory),
-            createSubagentTool({
-              orchestrator,
-              loadSkillBody: (name) => skills.readFile(name, "SKILL.md"),
-              createRunner: () =>
-                new RuntimeAgentRunner({
-                  model,
-                  store: gitStore,
-                  gitDir,
-                  tools: [...coreTools, createRecallTool(recallIndex, memory)],
-                  offloadOutputThresholdBytes: offloadBytes,
-                  maxSteps: 30,
-                }),
-            }),
+            ...(enableSubagents
+              ? [
+                  createSubagentTool({
+                    orchestrator,
+                    loadSkillBody: (name) => skills.readFile(name, "SKILL.md"),
+                    createRunner: () =>
+                      new RuntimeAgentRunner({
+                        model,
+                        store: gitStore,
+                        gitDir,
+                        tools: [...coreTools, createRecallTool(recallIndex, memory)],
+                        offloadOutputThresholdBytes: offloadBytes,
+                        maxSteps: 30,
+                      }),
+                  }),
+                ]
+              : []),
             ...mcpTools,
           ],
           hooks,

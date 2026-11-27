@@ -38,6 +38,8 @@ class GitHarnessAgent(BaseInstalledAgent):
         temperature: float | None = None,
         reasoning_effort: str | None = None,
         time_budget_sec: int | None = None,
+        disable_subagents: bool = False,
+        disable_stuck_hook: bool = False,
         *args,
         **kwargs,
     ):
@@ -53,6 +55,8 @@ class GitHarnessAgent(BaseInstalledAgent):
         self._temperature = float(temperature) if temperature is not None else None
         self._reasoning_effort = reasoning_effort
         self._time_budget_sec = int(time_budget_sec) if time_budget_sec is not None else None
+        self._disable_subagents = str(disable_subagents).lower() in ("1", "true", "yes")
+        self._disable_stuck_hook = str(disable_stuck_hook).lower() in ("1", "true", "yes")
 
     @staticmethod
     def name() -> str:
@@ -109,6 +113,10 @@ class GitHarnessAgent(BaseInstalledAgent):
             extra_flags.append(f"--reasoning-effort {shlex.quote(self._reasoning_effort)}")
         if self._time_budget_sec is not None:
             extra_flags.append(f"--time-budget-sec {self._time_budget_sec}")
+        if self._disable_subagents:
+            extra_flags.append("--no-subagents")
+        if self._disable_stuck_hook:
+            extra_flags.append("--no-stuck-hook")
         extra_flags_str = " ".join(extra_flags)
 
         # Use fast local detached GIT_DIR at /tmp/harness.git (zero pollution in /app),

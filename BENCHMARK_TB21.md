@@ -84,7 +84,26 @@ Inspecting the unpacked `session.bundle` of `feal-differential-cryptanalysis` (`
 
 ---
 
-## 4. Remaining Discordant Tasks (89 Tasks Total)
+## 4. Live 4-Arm Causal Component Ablation (15 Feature-Active Tasks)
+
+To causally isolate individual harness mechanisms on real tasks, we selected the top 15 feature-active tasks (`<950s` in clean `v0.7.1`) and toggled one component off at a time under identical model and timeout settings:
+
+| Configuration | Pass@1 (15 Tasks) | Timeouts | Median / Mean Dur | Weighted KV-Cache | Median / Mean Cost (10:1 cache) | Total Cost |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `pi v0.83.0` *(reference)* | `12 / 15` (`80.0%`) | `1` | `144.4s` / `367.8s` | `91.86%` | `$0.253` / `$0.307` | `$4.60` |
+| Full `git-harness v0.7.1` | `11 / 15` (`73.3%`) | `0` | `404.1s` / `417.7s` | `96.16%` | `$0.442` / `$0.651` | `$9.76` |
+| `− No blob:// offload` (`--offload-bytes 0`) | `10 / 15` (`66.7%`) | **`3`** | `419.9s` / **`795.4s` (`+90%`)** | `96.69%` | `$0.571` / **`$0.904` (`+39%`)** | **`$13.56`** |
+| `− No StuckLoopHook` (`--no-stuck-hook`) | `10 / 15` (`66.7%`) | **`2`** | `429.7s` / **`561.3s` (`+34%`)** | `96.85%` | `$0.350` / `$0.678` | `$10.17` |
+| **`− No subagent` (Git core only)** | **`14 / 15` (`93.3%`)** | **`0`** | `296.5s` / `470.9s` | **`97.76%`** | **`$0.201`** / `$0.649` | `$9.73` |
+
+**Causal Takeaways:**
+1. **`blob://` offloading is causally protective:** Disabling it nearly doubled mean duration (`418s → 795s`), raised total cost `+39%`, and triggered `3` timeouts (`0 → 3`).
+2. **`StuckLoopHook` prevents runaway loops:** Disabling it raised mean duration `+34%` and caused `2` timeouts (`sanitize-git-repo` `49s → 900s`, `llm-inference-batching-scheduler` `807s → 1800s`).
+3. **Subagent Over-Delegation Tax:** Keeping `git-harness`'s Git core (`shadow index + blob:// + StuckLoopHook + history + recall`) while disabling eager Turn-0 `subagent` delegation jumped Pass@1 to **`14 / 15` (`93.3%`)** (beating `pi`'s `12/15`), achieved **`97.76%`** weighted KV-cache hit (`3.63×` less uncached prefill than `pi`), and cut median cost by **`55%`** (`$0.201` vs `$0.442`, `21%` cheaper than `pi`). Subagents should be escalation-triggered (e.g., on parallel work or stuck loops) rather than eagerly prompted on Turn 0.
+
+---
+
+## 5. Remaining Discordant Tasks (89 Tasks Total)
 
 - **`git-harness`-only wins (8):** `configure-git-webserver`, `crack-7z-hash`, `dna-insert`, `extract-elf`, `qemu-alpine-ssh`, `qemu-startup`, `rstan-to-pystan`, `video-processing`
 - **`pi v0.83.0`-only wins (3):** `filter-js-from-html`, `gpt2-codegolf`, `train-fasttext`
