@@ -1,0 +1,7 @@
+[
+  {"n": 100,   "commit_p50": 28.2, "commit_p95": 50.8, "proj_warm": 0.1, "proj_cold": 11.3},
+  {"n": 1000,  "commit_p50": 30.9, "commit_p95": 55.1, "proj_warm": 0.1, "proj_cold": 12.8},
+  {"n": 5000,  "commit_p50": 36.7, "commit_p95": 60.3, "proj_warm": 0.1, "proj_cold": 12.8},
+  {"n": 10000, "commit_p50": 47.3, "commit_p95": 72.7, "proj_warm": 0.1, "proj_cold": 14.9},
+  {"n": 20000, "commit_p50": 66.2, "commit_p95": 92.9, "proj_warm": 0.1, "proj_cold": 14.3}
+]

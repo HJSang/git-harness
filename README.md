@@ -2,6 +2,8 @@
 
 A first-principles coding agent harness where **Git is a first-class resident**—not a bolted-on tool. Zero npm dependencies, running directly on Node.js (`>= 22.18` / `24`).
 
+> **Technical Report:** [*Git as a First-Class Agent Substrate: A Co-Atomic, Prefix-Invariant Harness for Long-Horizon Coding Agents*](./paper/git-harness-paper.pdf) ([LaTeX source & reproducible figures](./paper/))
+
 ## Core Thesis
 
 Modern coding agent harnesses repeatedly reinvent partial versions of Git across disconnected subsystems:
