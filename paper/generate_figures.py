@@ -28,7 +28,7 @@ pi, gh = data["pi"], data["v71"]
 tasks = sorted(set(pi) & set(gh))
 
 # ---- Figure: KV-Cache Hit Rate CDF + Uncached Prefill Comparison (2-panel) ----
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.2, 2.7), dpi=300)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.2, 2.85), dpi=300)
 
 cr_pi = sorted([100 * pi[t]["cache_rate"] for t in tasks if pi[t]["cache_rate"] is not None])
 cr_gh = sorted([100 * gh[t]["cache_rate"] for t in tasks if gh[t]["cache_rate"] is not None])
@@ -57,7 +57,7 @@ ax2.set_ylim(0, 7.6)
 ax2.set_ylabel("Uncached Prefill Rate (1 - R_cache, %)")
 ax2.set_title("(b) Weighted Uncached Prefill (95% CI: -5.4% to -1.9%)")
 
-plt.tight_layout()
+plt.tight_layout(w_pad=2.4)
 plt.savefig(os.path.join(OUT_DIR, "fig_kvcache.pdf"), bbox_inches="tight")
 plt.close()
 
