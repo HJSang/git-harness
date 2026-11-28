@@ -195,8 +195,18 @@ export function createCoreTools(options?: CoreToolsOptions): Tool[] {
     },
     execute(args, ctx): ToolResult {
       try {
-        const rel = String(args.path ?? "");
-        const content = String(args.content ?? "");
+        if (typeof args.path !== "string" || args.path.trim().length === 0) {
+          return { output: "write error: missing required string argument 'path'", isError: true };
+        }
+        if (typeof args.content !== "string") {
+          return {
+            output:
+              "write error: missing required string argument 'content' (tool call may have been truncated by max_tokens; split large files or generate incrementally)",
+            isError: true,
+          };
+        }
+        const rel = args.path;
+        const content = args.content;
         const abs = resolveSafePath(ctx.workspaceRoot, rel, enforceBoundary);
         fs.mkdirSync(path.dirname(abs), { recursive: true });
         fs.writeFileSync(abs, content, "utf8");

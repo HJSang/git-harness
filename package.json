@@ -1,6 +1,6 @@
 {
   "name": "git-harness",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "type": "module",
   "license": "MIT",
   "description": "A first-principles coding agent harness where Git is a first-class resident",

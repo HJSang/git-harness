@@ -105,11 +105,19 @@ export class OpenAICompatAdapter implements ModelAdapter {
         return {
           role: "assistant",
           content: m.content || null,
+          ...(m.thinking ? { reasoning_content: m.thinking } : {}),
           tool_calls: m.toolCalls.map((tc) => ({
             id: tc.id,
             type: "function",
             function: { name: tc.name, arguments: tc.arguments },
           })),
+        };
+      }
+      if (m.role === "assistant") {
+        return {
+          role: "assistant",
+          content: m.content,
+          ...(m.thinking ? { reasoning_content: m.thinking } : {}),
         };
       }
       if (m.role === "tool") {
@@ -352,11 +360,13 @@ export interface AnthropicAdapterOptions {
   apiKey: string;
   baseUrl?: string;
   maxTokens?: number;
+  reasoningEffort?: string;
+  maxRetries?: number;
 }
 
 /**
- * Zero-dependency Anthropic Messages API adapter with prompt-cache breakpoints
- * on the system prompt prefix.
+ * Zero-dependency Anthropic Messages API adapter with rolling prompt-cache
+ * breakpoints (system, tools, and latest turn) and adaptive thinking support.
  */
 export class AnthropicAdapter implements ModelAdapter {
   public readonly id: string;
@@ -364,13 +374,17 @@ export class AnthropicAdapter implements ModelAdapter {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly maxTokens: number;
+  private readonly reasoningEffort?: string;
+  private readonly maxRetries: number;
 
   constructor(options: AnthropicAdapterOptions) {
     this.model = options.model;
     this.id = options.model;
     this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? "https://api.anthropic.com").replace(/\/+$/, "");
-    this.maxTokens = options.maxTokens ?? 4096;
+    this.maxTokens = options.maxTokens ?? 64000;
+    this.reasoningEffort = options.reasoningEffort;
+    this.maxRetries = options.maxRetries ?? 4;
   }
 
   async complete(request: ModelRequest): Promise<ModelResponse> {
@@ -432,40 +446,79 @@ export class AnthropicAdapter implements ModelAdapter {
       }
     }
 
+    // Place a rolling ephemeral prompt-cache breakpoint on the final message so
+    // Anthropic caches the full multi-turn prefix across consecutive tool steps.
+    const lastMsg = converted.at(-1);
+    if (lastMsg) {
+      if (typeof lastMsg.content === "string" && lastMsg.content.length > 0) {
+        lastMsg.content = [
+          { type: "text", text: lastMsg.content, cache_control: { type: "ephemeral" } },
+        ];
+      } else if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+        const lastBlock = lastMsg.content.at(-1) as Record<string, unknown>;
+        if (lastBlock && typeof lastBlock === "object") {
+          lastBlock.cache_control = { type: "ephemeral" };
+        }
+      }
+    }
+
     const wantsStream = Boolean(request.onDelta);
+    // Anthropic requires streaming for high max_tokens requests (>16384) to avoid HTTP timeouts.
+    const useStream = wantsStream || this.maxTokens > 16384;
     const body: Record<string, unknown> = {
       model: this.model,
       max_tokens: this.maxTokens,
       messages: converted,
     };
-    if (wantsStream) body.stream = true;
+    if (useStream) body.stream = true;
     if (systemBlocks.length > 0) body.system = systemBlocks;
+    if (this.reasoningEffort && this.reasoningEffort !== "off" && this.reasoningEffort !== "none") {
+      body.thinking = { type: "adaptive" };
+      body.output_config = { effort: this.reasoningEffort };
+    }
     if (request.tools.length > 0) {
-      body.tools = request.tools.map((t) => ({
+      body.tools = request.tools.map((t, idx) => ({
         name: t.name,
         description: t.description,
         input_schema: t.parameters,
+        ...(idx === request.tools.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
       }));
     }
 
-    const res = await fetch(`${this.baseUrl}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-      signal: request.signal,
-    });
+    let res: Response | null = null;
+    let lastErrText = "";
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        res = await fetch(`${this.baseUrl}/v1/messages`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": this.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(body),
+          signal: request.signal,
+        });
+        if (res.ok || (res.status < 500 && res.status !== 429 && res.status !== 529)) {
+          break;
+        }
+        lastErrText = await res.text();
+      } catch (err) {
+        if (attempt === this.maxRetries) throw err;
+        lastErrText = (err as Error).message;
+      }
+      if (attempt < this.maxRetries) {
+        await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt));
+      }
+    }
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`AnthropicAdapter HTTP ${res.status}: ${errText}`);
+    if (!res || !res.ok) {
+      const errText = res ? lastErrText || (await res.text()) : lastErrText;
+      throw new Error(`AnthropicAdapter HTTP ${res?.status ?? 0}: ${errText}`);
     }
 
     const contentType = res.headers.get("content-type") ?? "";
-    if (wantsStream && res.body && contentType.includes("text/event-stream")) {
+    if (useStream && res.body && contentType.includes("text/event-stream")) {
       const blocks = new Map<
         number,
         { type: "text" | "thinking" | "tool_use"; text: string; id?: string; name?: string }
@@ -486,11 +539,20 @@ export class AnthropicAdapter implements ModelAdapter {
         const evType = (payload.type as string | undefined) ?? eventName;
         if (evType === "message_start") {
           const msg = payload.message as
-            | { usage?: { input_tokens?: number; cache_read_input_tokens?: number } }
+            | {
+                usage?: {
+                  input_tokens?: number;
+                  cache_creation_input_tokens?: number;
+                  cache_read_input_tokens?: number;
+                };
+              }
             | undefined;
           if (msg?.usage) {
-            tokensIn = msg.usage.input_tokens;
-            cacheRead = msg.usage.cache_read_input_tokens;
+            const uncached = msg.usage.input_tokens ?? 0;
+            const cacheCreate = msg.usage.cache_creation_input_tokens ?? 0;
+            const cacheHit = msg.usage.cache_read_input_tokens ?? 0;
+            tokensIn = uncached + cacheCreate + cacheHit;
+            cacheRead = cacheHit;
           }
         } else if (evType === "content_block_start") {
           const idx = Number(payload.index ?? 0);
@@ -558,7 +620,9 @@ export class AnthropicAdapter implements ModelAdapter {
             ? "tool_use"
             : stopReason === "max_tokens"
               ? "max_tokens"
-              : "end_turn",
+              : stopReason === "refusal"
+                ? "refusal"
+                : "end_turn",
       };
     }
 
@@ -572,6 +636,7 @@ export class AnthropicAdapter implements ModelAdapter {
       usage?: {
         input_tokens?: number;
         output_tokens?: number;
+        cache_creation_input_tokens?: number;
         cache_read_input_tokens?: number;
       };
     };
@@ -604,7 +669,10 @@ export class AnthropicAdapter implements ModelAdapter {
       toolCalls,
       usage: data.usage
         ? {
-            tokensIn: data.usage.input_tokens,
+            tokensIn:
+              (data.usage.input_tokens ?? 0) +
+              (data.usage.cache_creation_input_tokens ?? 0) +
+              (data.usage.cache_read_input_tokens ?? 0),
             tokensOut: data.usage.output_tokens,
             cacheRead: data.usage.cache_read_input_tokens,
           }
@@ -614,7 +682,9 @@ export class AnthropicAdapter implements ModelAdapter {
           ? "tool_use"
           : data.stop_reason === "max_tokens"
             ? "max_tokens"
-            : "end_turn",
+            : data.stop_reason === "refusal"
+              ? "refusal"
+              : "end_turn",
     };
   }
 }

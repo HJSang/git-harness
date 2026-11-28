@@ -259,6 +259,9 @@ export class AgentRuntime {
 
     let pendingMayMutate = false;
     let completedNormally = false;
+    let maxTokensContinuations = 0;
+    const MAX_INLINE_IMAGES_PER_WINDOW = 4;
+    let inlineImagesInWindow = workingMessages.reduce((n, m) => n + (m.images?.length ?? 0), 0);
     const shouldSynthesizeOnMaxSteps = input.synthesizeOnMaxSteps ?? this.synthesizeOnMaxSteps;
 
     while (steps < maxSteps) {
@@ -304,10 +307,12 @@ export class AgentRuntime {
         pendingEvents.push(thinkingEv);
       }
 
-      const assistantMsg: Message =
-        response.toolCalls.length > 0
-          ? { role: "assistant", content: response.content, toolCalls: response.toolCalls }
-          : { role: "assistant", content: response.content };
+      const assistantMsg: Message = {
+        role: "assistant",
+        content: response.content,
+        ...(response.thinking ? { thinking: response.thinking } : {}),
+        ...(response.toolCalls.length > 0 ? { toolCalls: response.toolCalls } : {}),
+      };
 
       workingMessages.push(assistantMsg);
       const assistantEv: TurnEvent = { type: "message", message: assistantMsg };
@@ -533,12 +538,21 @@ export class AgentRuntime {
           allTurnEvents.push(trEv);
           pendingEvents.push(trEv);
 
+          let attachedImages = result.images;
+          if (attachedImages && attachedImages.length > 0) {
+            if (inlineImagesInWindow + attachedImages.length > MAX_INLINE_IMAGES_PER_WINDOW) {
+              attachedImages = undefined;
+              promptOutput = `${promptOutput}\n[Harness Notice: inline image budget (${MAX_INLINE_IMAGES_PER_WINDOW}) reached for the current context window; analyze remaining images programmatically (e.g., Python/PIL/OpenCV) to avoid prompt bloat.]`;
+            } else {
+              inlineImagesInWindow += attachedImages.length;
+            }
+          }
           const toolMsg: Message = {
             role: "tool",
             name: item.tc.name,
             toolCallId: item.tc.id,
             content: promptOutput,
-            ...(result.images && result.images.length > 0 ? { images: result.images } : {}),
+            ...(attachedImages && attachedImages.length > 0 ? { images: attachedImages } : {}),
           };
           workingMessages.push(toolMsg);
           const toolMsgEv: TurnEvent = { type: "message", message: toolMsg };
@@ -548,7 +562,14 @@ export class AgentRuntime {
       }
 
       const toolsLatencyMs = performance.now() - toolsStart;
-      const isFinalStep = response.toolCalls.length === 0 || steps >= maxSteps;
+      const willContinueAfterMaxTokens =
+        response.toolCalls.length === 0 &&
+        response.stopReason === "max_tokens" &&
+        maxTokensContinuations < 2 &&
+        steps < maxSteps &&
+        !input.signal?.aborted;
+      const isFinalStep =
+        (response.toolCalls.length === 0 && !willContinueAfterMaxTokens) || steps >= maxSteps;
       const shouldAutoCompactNow =
         this.autoCompactThresholdTokens !== undefined &&
         lastStepTokensIn >= this.autoCompactThresholdTokens;
@@ -584,6 +605,7 @@ export class AgentRuntime {
           workingMessages = this.sessions.project(input.sessionRef, {
             systemPrompt: this.systemPrompt,
           }).messages;
+          inlineImagesInWindow = workingMessages.reduce((n, m) => n + (m.images?.length ?? 0), 0);
         }
       }
 
@@ -606,12 +628,27 @@ export class AgentRuntime {
         cacheRead,
         cacheHitRate: cacheHitRate !== undefined ? Number(cacheHitRate.toFixed(4)) : undefined,
         promptMessages: promptMessageCount,
+        stopReason: response.stopReason,
         toolCalls: toolProfiles,
         checkpointSha,
         workspaceTreeSha,
         workspaceChanged,
         compactedAnchorSha: stepCompactedAnchorSha,
       });
+
+      if (willContinueAfterMaxTokens) {
+        maxTokensContinuations++;
+        const contMsg: Message = {
+          role: "user",
+          content:
+            "[Harness Notice: Your previous response hit max_tokens before emitting a tool call or final answer. Keep reasoning concise and immediately emit your next concrete tool call (splitting large files into smaller writes or scripts) or provide your final verified summary.]",
+        };
+        workingMessages.push(contMsg);
+        const contEv: TurnEvent = { type: "message", message: contMsg };
+        allTurnEvents.push(contEv);
+        pendingEvents.push(contEv);
+        continue;
+      }
 
       if (response.toolCalls.length === 0) {
         completedNormally = true;

@@ -5,6 +5,7 @@ all: pdf
 figures:
 	python3 generate_arch_figures.py
 	python3 generate_figures.py
+	python3 generate_matrix_figures.py
 
 pdf: main.tex references.bib
 	pdflatex -interaction=nonstopmode main.tex

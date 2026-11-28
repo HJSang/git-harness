@@ -17,6 +17,8 @@ export interface StuckLoopHookOptions {
   timeWarningRatio?: number;
   /** Optional clock override for deterministic unit testing (defaults to `Date.now`). */
   now?: () => number;
+  /** Whether the `subagent` tool is available in this session (default: true). */
+  subagentsEnabled?: boolean;
 }
 
 /**
@@ -36,6 +38,7 @@ export function createStuckLoopHook(options: StuckLoopHookOptions): RuntimeHook 
   const timeBudgetMs = options.timeBudgetMs ?? 0;
   const timeWarningRatio = options.timeWarningRatio ?? 0.7;
   const now = options.now ?? (() => Date.now());
+  const subagentsEnabled = options.subagentsEnabled ?? true;
 
   let failureStreak = 0;
   let lastCleanSha: string | null = null;
@@ -49,9 +52,14 @@ export function createStuckLoopHook(options: StuckLoopHookOptions): RuntimeHook 
     const recent = options.sessions.logFirstParent(sessionRef, 20);
     const fallbackSha = recent.at(-1)?.sha ?? null;
     const anchor = (lastCleanSha ?? fallbackSha)?.slice(0, 8);
+    const subagentSuffix = subagentsEnabled
+      ? ", or spawn an 'orphan' subagent to rethink the root cause from first principles"
+      : ", or reconsider your approach from first principles";
     return anchor
-      ? `Last clean checkpoint: ${anchor}. Try history({ action: "diff", fromSha: "${anchor}" }), history({ action: "rewind", targetSha: "${anchor}" }), or spawn an 'orphan' subagent to rethink the root cause from first principles.`
-      : `Try history({ action: "log" }) or spawn an 'orphan' subagent to diagnose the root cause with fresh eyes.`;
+      ? `Last clean checkpoint: ${anchor}. Try history({ action: "diff", fromSha: "${anchor}" }), history({ action: "rewind", targetSha: "${anchor}" })${subagentSuffix}.`
+      : subagentsEnabled
+        ? `Try history({ action: "log" }) or spawn an 'orphan' subagent to diagnose the root cause with fresh eyes.`
+        : `Try history({ action: "log" }) to inspect recent steps and rethink the root cause with fresh eyes.`;
   }
 
   return {

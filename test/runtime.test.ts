@@ -858,7 +858,7 @@ test("Runtime v0.5: OpenAICompatAdapter & AnthropicAdapter SSE streaming + Agent
     assert.equal(anthRes.thinking, "plan");
     assert.equal(anthRes.stopReason, "tool_use");
     assert.deepEqual(anthRes.toolCalls, [{ id: "tu_1", name: "bash", arguments: '{"command":"echo hi"}' }]);
-    assert.deepEqual(anthRes.usage, { tokensIn: 200, tokensOut: 22, cacheRead: 150 });
+    assert.deepEqual(anthRes.usage, { tokensIn: 350, tokensOut: 22, cacheRead: 150 });
     assert.deepEqual(
       anthDeltas.map((d) => `${d.type}:${d.text}`),
       ["thinking:plan", "text:Hi ", "text:Claude"],
@@ -1142,6 +1142,87 @@ test("Runtime v0.7.1: StuckLoopHook continues firing past fileChurnWindow and em
     await runtime.runTurn({ sessionRef: ref, userInput: "Churn on gpt2.c" });
     assert.equal(churnNotices, 3, "Expected File-Churn notices at edits 3, 6, and 9 (no window saturation dead-zone)");
     assert.equal(timeNotices, 1, "Expected exactly one wall-clock Time-Budget notice at >=70% elapsed");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("Runtime v0.8: preserves assistant thinking, validates writeTool content, continues after max_tokens, and caps inline images", async () => {
+  const repo = initTempGitRepo();
+  try {
+    const store = new GitCliStore({ repoRoot: repo });
+    const sessions = new SessionStore(store);
+    const ref = sessionRef("v08-fixes");
+
+    // Create 5 tiny valid PNGs to exercise the 4-image inline cap
+    const png1x1 = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    );
+    for (let i = 1; i <= 5; i++) {
+      fs.writeFileSync(path.join(repo, `f${i}.png`), png1x1);
+    }
+
+    let sawPreservedThinking = false;
+    let sawMissingContentErr = false;
+    let sawMaxTokensContinue = false;
+    let sawImageCapNotice = false;
+
+    const model = new MockModelAdapter("mock", (req, step) => {
+      if (step === 0) {
+        return {
+          content: "",
+          thinking: "step-0-reasoning-trace",
+          toolCalls: [{ id: "w0", name: "write", arguments: JSON.stringify({ path: "vm.js" }) }],
+          stopReason: "tool_use",
+        };
+      }
+      if (step === 1) {
+        const prevAsst = req.messages.find((m) => m.role === "assistant");
+        if (prevAsst?.thinking === "step-0-reasoning-trace") sawPreservedThinking = true;
+        const lastTool = [...req.messages].reverse().find((m) => m.role === "tool");
+        if (lastTool?.content.includes("missing required string argument 'content'")) {
+          sawMissingContentErr = true;
+        }
+        // Hit max_tokens mid-thinking with 0 tool calls -> should continue instead of exiting!
+        return { content: "", thinking: "truncated...", toolCalls: [], stopReason: "max_tokens" };
+      }
+      if (step === 2) {
+        const lastUser = [...req.messages].reverse().find((m) => m.role === "user");
+        if (lastUser?.content.includes("hit max_tokens")) sawMaxTokensContinue = true;
+        // Read 5 PNGs in one wave -> 5th should drop inline base64 and emit cap notice
+        return {
+          content: "Inspecting frames",
+          toolCalls: [1, 2, 3, 4, 5].map((i) => ({
+            id: `img-${i}`,
+            name: "read",
+            arguments: JSON.stringify({ path: `f${i}.png` }),
+          })),
+          stopReason: "tool_use",
+        };
+      }
+      const imgCount = req.messages.reduce((n, m) => n + (m.images?.length ?? 0), 0);
+      assert.equal(imgCount, 4, "Inline images in active window must be capped at 4");
+      const lastTool = [...req.messages].reverse().find((m) => m.role === "tool");
+      if (lastTool?.content.includes("inline image budget (4) reached")) sawImageCapNotice = true;
+      return { content: "All verified.", toolCalls: [], stopReason: "end_turn" };
+    });
+
+    const runtime = new AgentRuntime({
+      sessions,
+      model,
+      workspaceRoot: repo,
+      defaultMaxSteps: 10,
+    });
+
+    const res = await runtime.runTurn({ sessionRef: ref, userInput: "Test v0.8 guards" });
+    assert.equal(res.stopReason, "completed");
+    assert.equal(res.assistantText, "All verified.");
+    assert.ok(sawPreservedThinking, "Expected assistant thinking preserved in workingMessages");
+    assert.ok(sawMissingContentErr, "Expected writeTool to reject missing content with error");
+    assert.ok(!fs.existsSync(path.join(repo, "vm.js")), "Rejected writeTool must not create 0-byte file");
+    assert.ok(sawMaxTokensContinue, "Expected max_tokens with 0 tool calls to trigger continuation");
+    assert.ok(sawImageCapNotice, "Expected 5th PNG read to trigger inline image cap notice");
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }

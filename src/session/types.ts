@@ -19,6 +19,8 @@ export interface ImageAttachment {
 export interface Message {
   role: MessageRole;
   content: string;
+  /** Optional assistant reasoning/thinking trace preserved for interleaved-thinking models. */
+  thinking?: string;
   name?: string;
   toolCallId?: string;
   toolCalls?: ToolCallRecord[];

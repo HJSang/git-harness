@@ -70,7 +70,7 @@ export interface ModelResponse {
   thinking?: string;
   toolCalls: ToolCallRecord[];
   usage?: ModelUsage;
-  stopReason?: "end_turn" | "tool_use" | "max_tokens" | "unknown";
+  stopReason?: "end_turn" | "tool_use" | "max_tokens" | "refusal" | "unknown";
 }
 
 /**
@@ -168,6 +168,7 @@ export interface StepProfileEntry {
   cacheRead?: number;
   cacheHitRate?: number;
   promptMessages: number;
+  stopReason?: ModelResponse["stopReason"];
   toolCalls: ToolCallProfile[];
   checkpointSha?: Sha;
   workspaceTreeSha?: Sha | null;

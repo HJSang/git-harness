@@ -119,6 +119,7 @@ export function createAdapterFromModelsConfig(options: ResolveAdapterOptions): M
       apiKey,
       baseUrl,
       maxTokens: options.maxTokens,
+      reasoningEffort: options.reasoningEffort,
     });
   }
 

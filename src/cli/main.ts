@@ -119,6 +119,7 @@ function buildModelFromEnv(overrides?: {
       apiKey,
       baseUrl: overrides?.baseUrl ?? process.env.ANTHROPIC_BASE_URL,
       maxTokens: overrides?.maxTokens,
+      reasoningEffort: overrides?.reasoningEffort,
     });
   }
 
@@ -491,6 +492,7 @@ export async function runCli(argv: string[]): Promise<void> {
             createStuckLoopHook({
               sessions,
               timeBudgetMs: timeBudgetSec && timeBudgetSec > 0 ? timeBudgetSec * 1000 : undefined,
+              subagentsEnabled: enableSubagents,
             }),
           ]
         : []),
